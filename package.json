@@ -15,6 +15,9 @@
     "test": "tsx --test tests/*.test.ts",
     "test:network": "node --import tsx tests/network-check.ts",
     "test:match": "node --import tsx tests/match-check.ts",
+    "test:taunt": "node --import tsx tests/taunt-network-check.ts",
+    "test:platform": "node --import tsx tests/platform-integration-check.ts",
+    "test:desktop-taunt": "node tests/desktop-taunt-check.mjs",
     "test:production": "node tests/production-check.mjs",
     "test:browser": "node tests/browser-controls.mjs"
   },

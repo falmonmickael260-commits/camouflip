@@ -1,5 +1,6 @@
 export type Surface = 'wood' | 'carpet' | 'concrete';
 export type Sound = 'fire' | 'hit' | 'morph' | 'unmorph' | 'eliminate' | 'penalty' | 'step' | 'shuffle' | 'button' | 'aim' | 'countdown' | 'roundStart' | 'victory' | 'defeat';
+import { TAUNT_RANGE, TAUNT_VARIANTS, tauntAcoustics } from './taunt';
 
 const files = [
   'footstep_wood_000.m4a','footstep_wood_002.m4a',
@@ -12,6 +13,36 @@ const files = [
 ] as const;
 type File = typeof files[number];
 
+// Five short, original cartoon calls, rendered locally from note contours and harmonic layers.
+// They contain no sampled voice, recording, or third-party asset.
+function makeTaunt(ctx:AudioContext,variant:number):AudioBuffer {
+  const notes=[
+    [[0,.16,440,370],[.2,.14,480,410],[.39,.2,405,290]], // little chuckle
+    [[0,.38,790,1180],[.4,.19,1100,760]],                  // whistle
+    [[0,.19,530,510],[.26,.27,390,350]],                  // cuckoo call
+    [[0,.14,310,330],[.18,.15,390,410],[.38,.27,465,420]],// tiny trumpet
+    [[0,.24,670,330],[.3,.28,410,760]],                   // springy tease
+  ][variant%TAUNT_VARIANTS];
+  const buffer=ctx.createBuffer(1,Math.ceil(ctx.sampleRate*.74),ctx.sampleRate),data=buffer.getChannelData(0);
+  let seed=variant+1;
+  for(let i=0;i<data.length;i++){
+    const t=i/ctx.sampleRate;let sample=0,active=false;
+    for(const [start,duration,first,last] of notes){
+      const age=t-start;if(age<0||age>=duration)continue;active=true;
+      const progress=age/duration;
+      const phase=2*Math.PI*(first*age+(last-first)*age*progress*.5)+.055*Math.sin(age*52);
+      const envelope=Math.min(1,age*80)*Math.pow(1-progress,1.25);
+      const fundamental=Math.sin(phase),second=Math.sin(phase*2+.12),third=Math.sin(phase*3+.31);
+      const bright=variant===3?.52:variant===2?.28:variant===1?.08:.24;
+      sample+=envelope*(fundamental+bright*second+bright*.38*third);
+    }
+    seed=(seed*1664525+1013904223)>>>0;
+    const air=active?(seed/4294967296-.5)*.012:0;
+    data[i]=Math.tanh((sample+air)*.56);
+  }
+  return buffer;
+}
+
 export class AudioEngine {
   private ctx:AudioContext|null=null;
   private master:GainNode|null=null;
@@ -22,6 +53,7 @@ export class AudioEngine {
   private musicDuck:GainNode|null=null;
   private ambience:GainNode|null=null;
   private buffers=new Map<File,AudioBuffer>();
+  private tauntBuffers:AudioBuffer[]=[];
   private loading:Promise<void>|null=null;
   private stepIndex=0;
   private menuMusic:HTMLAudioElement|null=null;
@@ -37,6 +69,7 @@ export class AudioEngine {
   start():void {
     if(this.ctx){void this.ctx.resume();return;}
     const ctx=new AudioContext();this.ctx=ctx;
+    this.tauntBuffers=Array.from({length:TAUNT_VARIANTS},(_,i)=>makeTaunt(ctx,i));
     this.master=ctx.createGain();this.master.gain.value=this.muted?0:.78;
     this.limiter=ctx.createDynamicsCompressor();this.limiter.threshold.value=-10;this.limiter.knee.value=8;this.limiter.ratio.value=3;this.limiter.attack.value=.006;this.limiter.release.value=.22;
     this.master.connect(this.limiter);this.limiter.connect(ctx.destination);
@@ -56,7 +89,7 @@ export class AudioEngine {
   }
   async ready():Promise<void>{this.start();await this.loading;}
   loadedCount():number{return this.buffers.size;}
-  status():{loaded:number;mode:string;menuReady:number;gameReady:number;roomReady:number;menuPlaying:boolean;gamePlaying:boolean;roomPlaying:boolean}{return {loaded:this.buffers.size,mode:this.musicMode,menuReady:this.menuMusic?.readyState??0,gameReady:this.gameMusic?.readyState??0,roomReady:this.roomTone?.readyState??0,menuPlaying:!!this.menuMusic&&!this.menuMusic.paused,gamePlaying:!!this.gameMusic&&!this.gameMusic.paused,roomPlaying:!!this.roomTone&&!this.roomTone.paused};}
+  status():{loaded:number;taunts:number;mode:string;menuReady:number;gameReady:number;roomReady:number;menuPlaying:boolean;gamePlaying:boolean;roomPlaying:boolean}{return {loaded:this.buffers.size,taunts:this.tauntBuffers.length,mode:this.musicMode,menuReady:this.menuMusic?.readyState??0,gameReady:this.gameMusic?.readyState??0,roomReady:this.roomTone?.readyState??0,menuPlaying:!!this.menuMusic&&!this.menuMusic.paused,gamePlaying:!!this.gameMusic&&!this.gameMusic.paused,roomPlaying:!!this.roomTone&&!this.roomTone.paused};}
   isMuted():boolean{return this.muted;}
   toggleMute():boolean{this.muted=!this.muted;localStorage.setItem('maison-muted',this.muted?'1':'0');if(this.ctx&&this.master)this.master.gain.setTargetAtTime(this.muted?0:.78,this.ctx.currentTime,.08);return this.muted;}
 
@@ -74,11 +107,28 @@ export class AudioEngine {
       if(this.musicMode!=='hide'&&this.musicMode!=='hunt')this.gameMusic?.pause();
     },1800);
   }
-  setPosition(x:number,z:number):void {
+  setPosition(x:number,z:number,yaw=0):void {
     if(!this.ctx||!this.roomGain)return;
+    const listener=this.ctx.listener,t=this.ctx.currentTime;
+    listener.positionX.setValueAtTime(x,t);listener.positionY.setValueAtTime(1,t);listener.positionZ.setValueAtTime(z,t);
+    listener.forwardX.setValueAtTime(-Math.sin(yaw),t);listener.forwardY.setValueAtTime(0,t);listener.forwardZ.setValueAtTime(-Math.cos(yaw),t);
     const distance=Math.hypot(x-9.5,z-.5);
     const level=Math.max(0,1-distance/8)*.32;
     if(Math.abs(this.roomGain.gain.value-level)>.015)this.roomGain.gain.setTargetAtTime(level,this.ctx.currentTime,.5);
+  }
+  playTaunt(variant:number,x:number,z:number,listenerX:number,listenerZ:number):void {
+    const ctx=this.ctx,buffer=this.tauntBuffers[variant],destination=this.effects;
+    const acoustics=tauntAcoustics(listenerX,listenerZ,x,z);
+    if(!ctx||!buffer||!destination||!acoustics.audible)return;
+    const source=ctx.createBufferSource(),filter=ctx.createBiquadFilter(),panner=ctx.createPanner(),gain=ctx.createGain();
+    source.buffer=buffer;filter.type='lowpass';filter.frequency.value=acoustics.lowpassHz;
+    panner.panningModel='HRTF';panner.distanceModel='linear';panner.refDistance=1.2;panner.maxDistance=TAUNT_RANGE;panner.rolloffFactor=0;
+    panner.positionX.value=x;panner.positionY.value=.85;panner.positionZ.value=z;
+    gain.gain.value=acoustics.gain;
+    source.connect(filter);filter.connect(panner);panner.connect(gain);gain.connect(destination);
+    source.onended=()=>{source.disconnect();filter.disconnect();panner.disconnect();gain.disconnect();};
+    this.duckMusic(.78);
+    source.start();
   }
   private installMusic():void {
     if(!this.ctx||!this.music)return;

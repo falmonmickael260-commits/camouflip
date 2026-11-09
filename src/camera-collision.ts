@@ -1,4 +1,8 @@
-import { props, walls } from './shared';
+import { clamp, props, walls, type PropDef } from './shared';
+
+export function propCameraDistance(prop:PropDef|null):number {
+  return prop?clamp(3.5+Math.max(prop.w,prop.d)*.28,3.55,4.18):3.65;
+}
 
 export interface Point3 {x:number;y:number;z:number}
 function rayBox(origin:Point3,dir:Point3,length:number,cx:number,cy:number,cz:number,hw:number,hh:number,hd:number,yaw=0):number {
@@ -15,7 +19,7 @@ function rayBox(origin:Point3,dir:Point3,length:number,cx:number,cy:number,cz:nu
   }
   return near;
 }
-export function clearCameraDistance(focus:Point3,wanted:Point3,ignorePropId:string|null):number {
+export function clearCameraDistance(focus:Point3,wanted:Point3,ignorePropId:string|null,padding=.18):number {
   const dx=wanted.x-focus.x,dy=wanted.y-focus.y,dz=wanted.z-focus.z;
   const length=Math.hypot(dx,dy,dz);if(length<.001)return 0;
   const dir={x:dx/length,y:dy/length,z:dz/length};let nearest=length;
@@ -25,5 +29,5 @@ export function clearCameraDistance(focus:Point3,wanted:Point3,ignorePropId:stri
     const hit=rayBox(focus,dir,nearest,p.x,p.h/2,p.z,p.w/2,p.h/2,p.d/2,p.yaw);
     if(hit<nearest)nearest=hit;
   }
-  return Math.max(.28,nearest-.18);
+  return Math.max(.28,nearest-padding);
 }

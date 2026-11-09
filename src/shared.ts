@@ -3,19 +3,20 @@ export type Phase = 'lobby' | 'hide' | 'hunt' | 'results';
 export type PropKind = 'chair' | 'stool' | 'table' | 'sofa' | 'lamp' | 'plant' | 'vase' | 'box' | 'suitcase' | 'bin' | 'bookshelf' | 'tv' | 'speaker' | 'microwave' | 'toaster' | 'coffee' | 'bed' | 'cabinet' | 'toy' | 'fridge' | 'tub' | 'sink' | 'car' | 'basket' | 'toolbox' | 'fan' | 'vacuum' | 'barrel' | 'chest' | 'ottoman' | 'globe' | 'guitar' | 'hamper' | 'lantern' | 'sideboard';
 export interface PropDef { id: string; kind: PropKind; x: number; z: number; yaw: number; w: number; d: number; h: number; morph: boolean; solid: boolean; }
 export interface WallDef { x: number; z: number; w: number; d: number; h: number; }
-export interface PlayerState { id: string; name: string; x: number; z: number; yaw: number; pitch: number; role: Role; disguise: string | null; locked: boolean; alive: boolean; hp: number; score: number; bot: boolean; moving: number; }
+export interface PlayerState { id: string; name: string; avatarUrl?: string; connected?: boolean; x: number; z: number; yaw: number; pitch: number; role: Role; disguise: string | null; locked: boolean; alive: boolean; hp: number; score: number; bot: boolean; moving: number; }
 export interface Snapshot { type: 'snapshot'; code: string; phase: Phase; endsAt: number; round: number; hunterId: string | null; hostId: string; players: PlayerState[]; connected: number; }
 export type ClientMessage =
-  | { type: 'create'; name: string; bots: number }
-  | { type: 'join'; name: string; code: string }
+  | { type: 'create'; name: string; bots: number; rgToken?: string }
+  | { type: 'join'; name: string; code: string; rgToken?: string; admissionToken?: string }
   | { type: 'start' }
   | { type: 'next' }
   | { type: 'input'; x: number; z: number; yaw: number; pitch: number; run: boolean }
   | { type: 'morph'; propId: string }
   | { type: 'unmorph' }
   | { type: 'lock'; locked: boolean }
+  | { type: 'taunt' }
   | { type: 'fire' };
-export type ServerMessage = Snapshot | { type: 'welcome'; id: string; code: string } | { type: 'event'; event: 'fire' | 'hit' | 'morph' | 'eliminate' | 'penalty'; x: number; z: number; id?: string; target?: string } | { type: 'error'; message: string };
+export type ServerMessage = Snapshot | { type: 'welcome'; id: string; code: string; sessionToken: string } | { type: 'event'; event: 'fire' | 'hit' | 'morph' | 'eliminate' | 'penalty'; x: number; z: number; id?: string; target?: string } | { type: 'taunt'; id: string; seq: number; x: number; z: number; variant: number; cooldownMs: number } | { type: 'error'; message: string };
 
 const props: PropDef[] = [];
 function add(kind: PropKind, x: number, z: number, yaw = 0, morph = true): void {

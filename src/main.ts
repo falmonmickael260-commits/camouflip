@@ -2,20 +2,28 @@ import * as THREE from 'three';
 import { buildWorld, makePropClone } from './scene';
 import { Character } from './character';
 import { AudioEngine, type Surface } from './audio';
-import { clearCameraDistance } from './camera-collision';
+import { clearCameraDistance, propCameraDistance } from './camera-collision';
 import { radialStick } from './input-math';
+import { TAUNT_COOLDOWN_MS } from './taunt';
 import { clamp, props, stepKinematic, type ClientMessage, type MotionBody, type PlayerState, type PropDef, type ServerMessage, type Snapshot } from './shared';
 import './style.css';
 
 const app=document.querySelector<HTMLDivElement>('#app')!;
 app.innerHTML=`<canvas id="game"></canvas>
 <div class="vignette"></div><div id="rotate">Tournez votre téléphone en mode paysage</div>
-<div id="menu" class="screen"><div class="brand"><div class="eyebrow">UN JEU DE CACHE-CACHE EN 3D</div><h1>MAISON<br><em>MASQUÉE</em></h1><p>Cachez-vous. Changez de forme. Ne bougez plus.</p></div>
-  <div class="menu-card"><div class="card-title">Entrer dans la maison <span>01 / SALON</span></div><label>PSEUDO<input id="name" maxlength="18" placeholder="Votre pseudo" value="Joueur" autocomplete="off"></label><div class="menu-row"><button id="solo" class="primary">Jouer avec 3 bots <span>↗</span></button><button id="create">Créer un salon</button></div><div class="join-row"><input id="code" maxlength="4" placeholder="CODE À 4 CARACTÈRES" autocapitalize="characters" autocomplete="off"><button id="join">Rejoindre</button></div><div class="menu-foot">2 à 7 joueurs · même adresse de jeu · mobile et Mac</div><div id="error"></div></div>
-  <div class="menu-bottom">MAISON MASQUÉE <span>ÉDITION LOCALE · V0.1</span></div></div>
-<div id="lobby" class="screen hidden"><div class="panel"><div class="eyebrow">SALON PRIVÉ · <span id="lobby-count">1/7 JOUEURS</span></div><h2>Les invités arrivent</h2><p>Partagez ce code à 4 caractères aux joueurs qui ouvrent la même adresse. Sept places maximum.</p><div id="room-code">----</div><div id="roster"></div><button id="start" class="primary">Lancer la manche <span>↗</span></button><div class="hint">Un chasseur, jusqu'à six fugitifs. 30 s pour se cacher, puis 3 min de chasse.</div></div></div>
-<div id="results" class="screen hidden"><div class="panel"><div class="eyebrow">FIN DE MANCHE</div><h2 id="result-title">Résultats</h2><div id="result-rows"></div><button id="next" class="primary">Manche suivante <span>↗</span></button></div></div>
-<div id="hud" class="hidden"><div class="hud-top"><div class="hud-brand">M<span>•</span>M</div><div class="hud-pill"><span id="phase">CACHE-CACHE</span><strong id="timer">0:30</strong></div><div class="hud-stat"><span id="role">FUGITIF</span><strong id="life">100 PV</strong></div></div><div id="hud-board"><div class="board-title">JOUEURS <span id="board-count">0/7</span></div><div id="board-rows"></div></div><div id="notice"></div><button id="help" type="button" aria-label="Afficher les commandes" aria-expanded="false">?</button><section id="howto" class="hidden" aria-label="Comment jouer"><div class="howto-head"><span>COMMENT JOUER</span><strong id="howto-role"></strong></div><p id="howto-goal"></p><div class="howto-keys"><div class="howto-touch"><small>TÉLÉPHONE</small><p id="howto-touch"></p></div><div class="howto-desktop"><small>MAC</small><p id="howto-desktop"></p></div></div><div class="howto-foot"><span>Revoir avec <b>?</b> ou <b>H</b></span><button id="howto-close" type="button">J'AI COMPRIS</button></div></section><div id="crosshair">+</div><div id="aim-label">VISÉE</div><div id="hud-bottom-glow"></div><div class="hud-bottom"><div id="players-left">SURVIVANTS 0/0</div><div id="quality-wrap">SON <button id="sound">ON</button> SENSI <button id="sensitivity">1.0×</button> QUALITÉ <button id="quality">MOYENNE</button></div></div><div id="touch"><div id="move-zone"></div><div id="stick"><div id="nub"></div></div><div id="look-zone"></div><div id="actions"><button id="act-main" class="action main">TRANSFORMER</button><button id="act-aim" class="action">VISER</button><button id="act-lock" class="action">VERROUILLER</button><button id="act-run" class="action">COURIR</button></div></div><div id="desktop-help">ZQSD / WASD · souris pour regarder · Maj courir · E se transformer · F verrouiller · clic tirer · clic droit viser · H aide · Échap libérer</div></div>`;
+<div id="menu" class="screen"><div class="menu-atmosphere" aria-hidden="true"></div><div class="menu-shell">
+  <aside class="menu-left"><label class="player-card"><span class="player-avatar" id="player-avatar">J</span><span><small>VOTRE PSEUDO</small><input id="name" maxlength="18" placeholder="Votre pseudo" value="Joueur" autocomplete="nickname" aria-label="Votre pseudo"></span></label>
+    <nav class="menu-nav" aria-label="Navigation principale"><button id="nav-home" class="selected" data-icon="⌂">Accueil</button><button id="nav-play" data-icon="▶">Jouer</button><button id="nav-characters" data-icon="♟">Personnages</button><button id="nav-objects" data-icon="◈">Objets</button><button id="nav-maps" data-icon="⌖">Cartes</button><button id="nav-settings" data-icon="⚙">Paramètres</button></nav>
+  </aside>
+  <main class="menu-center"><div class="menu-branding"><img id="menu-logo" src="/branding/camouflip-logo.png" alt="Camouflip" width="1254" height="1254"><p>CACHE-TOI <span>•</span> TRANSFORME-TOI <span>•</span> SURVIS !</p></div>
+    <button id="solo" class="play-hero" type="button"><span aria-hidden="true">▶</span> JOUER</button>
+    <div class="menu-modes" aria-label="Modes de jeu"><button id="mode-quick" class="mode-card quick" type="button"><span class="mode-icon" aria-hidden="true">ϟ</span><strong>PARTIE RAPIDE</strong><small>Avec 3 bots</small></button><button id="create" class="mode-card create" type="button"><span class="mode-icon" aria-hidden="true">✦</span><strong>CRÉER UN SALON</strong><small>Jusqu'à 7 joueurs</small></button><button id="mode-join" class="mode-card join" type="button"><span class="mode-icon" aria-hidden="true">⌗</span><strong>REJOINDRE</strong><small>Avec un code</small></button></div>
+  </main>
+  <aside class="menu-right"><button id="menu-settings" class="menu-gear" type="button" aria-label="Ouvrir les paramètres">⚙</button><div class="feature-card"><img src="/branding/house-background.png" alt="Maison Masquée, carte disponible"><div><small>CARTE DISPONIBLE</small><strong>Maison Masquée</strong><span>Une maison à explorer et à habiter.</span></div></div><div class="menu-tip"><small>COMMENT JOUER</small><strong>Cachez-vous. Écoutez. Survivez.</strong><p>1 chasseur face à 1 à 6 objets. 30 secondes pour se cacher, puis 3 minutes de chasse.</p></div><div class="menu-version">CAMOUFLIP · JEU LOCAL</div></aside>
+  </div><div id="menu-dialog-backdrop" class="menu-dialog-backdrop hidden"><div id="menu-dialog" class="menu-dialog" role="dialog" aria-modal="true" aria-label="Menu Camouflip"><button id="menu-dialog-close" type="button" aria-label="Fermer">×</button><div id="menu-dialog-content"></div></div></div><div id="error" role="status" aria-live="polite"></div></div>
+<div id="lobby" class="screen hidden"><div class="panel"><div class="eyebrow">SALON PRIVÉ · <span id="lobby-count">1/7 JOUEURS</span></div><h2>Les invités arrivent</h2><p>Partagez ce code à 4 caractères aux joueurs externes. Les amis Revanche Games peuvent être invités directement.</p><div id="room-code">----</div><div id="roster"></div><button id="invite-friends" class="primary hidden" type="button">INVITER DES AMIS <span>✦</span></button><button id="start" class="primary">Lancer la manche <span>↗</span></button><button id="lobby-back" type="button">Retour au menu</button><div class="hint">Un chasseur, jusqu'à six fugitifs. 30 s pour se cacher, puis 3 min de chasse.</div></div></div>
+<div id="results" class="screen hidden"><div class="panel"><div class="eyebrow">FIN DE MANCHE</div><h2 id="result-title">Résultats</h2><div id="result-rows"></div><button id="next" class="primary">Manche suivante <span>↗</span></button><button id="results-menu" type="button">Retour au menu</button></div></div>
+<div id="hud" class="hidden"><div class="hud-top"><div class="hud-brand">M<span>•</span>M</div><div class="hud-pill"><span id="phase">CACHE-CACHE</span><strong id="timer">0:30</strong></div><div class="hud-stat"><span id="role">FUGITIF</span><strong id="life">100 PV</strong></div></div><div id="hud-board"><div class="board-title">JOUEURS <span id="board-count">0/7</span></div><div id="board-rows"></div></div><div id="notice"></div><button id="help" type="button" aria-label="Afficher les commandes" aria-expanded="false">?</button><section id="howto" class="hidden" aria-label="Comment jouer"><div class="howto-head"><span>COMMENT JOUER</span><strong id="howto-role"></strong></div><p id="howto-goal"></p><div class="howto-keys"><div class="howto-touch"><small>TÉLÉPHONE</small><p id="howto-touch"></p></div><div class="howto-desktop"><small>MAC</small><p id="howto-desktop"></p></div></div><div class="howto-foot"><span>Revoir avec <b>?</b> ou <b>H</b></span><button id="howto-close" type="button">J'AI COMPRIS</button></div></section><div id="crosshair">+</div><div id="aim-label">VISÉE</div><div id="hud-bottom-glow"></div><div class="hud-bottom"><div id="players-left">SURVIVANTS 0/0</div><div id="quality-wrap">SON <button id="sound">ON</button> SENSI <button id="sensitivity">1.0×</button> QUALITÉ <button id="quality">MOYENNE</button></div></div><div id="touch"><div id="move-zone"></div><div id="stick"><div id="nub"></div></div><div id="look-zone"></div><div id="actions"><button id="act-main" class="action main">TRANSFORMER</button><button id="act-aim" class="action">VISER</button><button id="act-lock" class="action">VERROUILLER</button><button id="act-run" class="action">COURIR</button></div><button id="act-taunt" type="button" class="hidden" aria-label="Narguer"><span class="taunt-face" aria-hidden="true">◕‿◕</span><span>NARGUER<small id="taunt-state">PRÊT</small></span></button></div><div id="desktop-help">ZQSD / WASD · souris pour regarder · Maj courir · E se transformer · F verrouiller · T narguer · clic tirer · clic droit viser · H aide · Échap libérer</div></div>`;
 const $=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
 const canvas=$<HTMLCanvasElement>('game');
 canvas.tabIndex=0;
@@ -31,8 +39,40 @@ window.addEventListener('resize',resize);resize();
 const audio=new AudioEngine();
 $('sound').textContent=audio.isMuted()?'OFF':'ON';
 let ws:WebSocket|null=null,myId='',hostId='',latest:Snapshot|null=null;
+let sessionToken='',platformLaunch:string|null=null,adoptedInvitation:string|null=null;
+let lastPlatformState='',lastPlatformSent=0;
+let reconnectAttempts=0,reconnectTimer=0,restoreAttempted=false;
+const rgToken=new URLSearchParams(location.search).get('rg_token')||'';
+const rgUserId=(()=>{try{return String(JSON.parse(atob(rgToken.split('.')[0].replace(/-/g,'+').replace(/_/g,'/'))).uid||'');}catch{return '';}})();
+const roomStorageKey=`camouflip-room:${rgUserId}`;
+const platformOrigin=(()=>{try{return document.referrer?new URL(document.referrer).origin:(import.meta.env.VITE_PLATFORM_ORIGIN||'http://localhost:3100');}catch{return 'http://localhost:3100';}})();
+const embedded=window.parent!==window;
+function platformPost(type:string,extra:Record<string,unknown>={}):void {if(embedded)window.parent.postMessage({type,v:1,game:'camouflip',...(platformLaunch?{launch:platformLaunch}:{}),...extra},platformOrigin);}
+function reportPlatformRoom():void {if(!platformLaunch)return;const session=sessionToken&&latest?{code:latest.code,token:sessionToken,playerId:myId}:null;const state=JSON.stringify(session);if(state===lastPlatformState&&Date.now()-lastPlatformSent<20_000)return;lastPlatformState=state;lastPlatformSent=Date.now();platformPost('rg:room',{session});}
+if(embedded){
+  platformPost('rg:ready');
+  const readyTimer=window.setInterval(()=>{if(platformLaunch)window.clearInterval(readyTimer);else platformPost('rg:ready');},1000);
+  window.addEventListener('message',e=>{
+    const data=e.data;if(e.source!==window.parent||e.origin!==platformOrigin||data?.type!=='rg:bootstrap'||data.v!==1||data.game!=='camouflip')return;
+    platformLaunch=data.launch;
+    if(data.admission?.id&&data.admission.id!==adoptedInvitation){
+      adoptedInvitation=data.admission.id;
+      const session=data.admission.session;
+      if(typeof session?.code!=='string'||typeof session?.token!=='string'){platformPost('rg:join-error');return;}
+      connect(()=>send({type:'join',name:nameInput.value,code:session.code,rgToken,admissionToken:session.token}));
+    }else {reportPlatformRoom();if(!restoreAttempted&&rgToken&&!latest){restoreAttempted=true;let code='';try{code=sessionStorage.getItem(roomStorageKey)||'';}catch{}if(/^[A-Z0-9]{4}$/.test(code))connect(()=>send({type:'join',name:nameInput.value,code,rgToken}));}}
+  });
+  window.setInterval(reportPlatformRoom,5000);
+}
+const nameInput=$<HTMLInputElement>('name');
+nameInput.value=localStorage.getItem('camouflip-name')||'Joueur';
+if(rgToken){try{const parsed=JSON.parse(atob(rgToken.split('.')[0].replace(/-/g,'+').replace(/_/g,'/')));if(typeof parsed.username==='string'){nameInput.value=parsed.username;nameInput.readOnly=true;nameInput.title='Pseudo du compte Revanche Games';}}catch{/* le serveur rejettera un jeton invalide */}}
+function updatePlayerName():void {const name=nameInput.value.trim();$('player-avatar').textContent=(name[0]||'J').toUpperCase();localStorage.setItem('camouflip-name',nameInput.value);}
+nameInput.addEventListener('input',updatePlayerName);updatePlayerName();
 let yaw=0,pitch=0,desiredYaw=0,desiredPitch=0,run=false,moveX=0,moveZ=0;
 let lastInputSent=0,lastStep=0,noticeUntil=0;
+let tauntAvailableAt=0,tauntPendingUntil=0;
+const seenTaunts=new Map<string,number>();
 let aiming=false,aimBlend=0,lastCountdownSecond=-1,boardSignature='';
 const sensitivityLevels=[.7,1,1.35];
 let sensitivityIndex=clamp(Number(localStorage.getItem('maison-sensitivity')||1),0,2);
@@ -48,13 +88,23 @@ type Predicted=MotionBody&{id:string;disguise:string|null;moving:number};
 let predicted:Predicted|null=null;
 
 function connect(onOpen:()=>void):void {
-  if(ws)ws.close();
+  if(ws){ws.onclose=null;ws.close();}
   const scheme=location.protocol==='https:'?'wss:':'ws:';
   const host=import.meta.env.DEV?`${location.hostname}:8788`:location.host;
-  ws=new WebSocket(`${scheme}//${host}`);
-  ws.onopen=onOpen;ws.onmessage=e=>{let msg:ServerMessage;try{msg=JSON.parse(e.data);}catch{return;}handle(msg);};
-  ws.onerror=()=>{$('error').textContent=import.meta.env.DEV?'Serveur introuvable. Lancez npm run server dans un second terminal.':'Connexion au salon indisponible. Réessayez.';};
-  ws.onclose=()=>{if(myId){hideHelp();showNotice('Connexion au serveur perdue');myId='';latest=null;$('hud').classList.add('hidden');$('menu').classList.remove('hidden');}};
+  const socket=new WebSocket(`${scheme}//${host}`);ws=socket;
+  $('menu').classList.add('connecting');$('error').textContent='';
+  socket.onopen=()=>{if(ws===socket)onOpen();};socket.onmessage=e=>{let msg:ServerMessage;try{msg=JSON.parse(e.data);}catch{return;}handle(msg);};
+  socket.onerror=()=>{$('menu').classList.remove('connecting');$('error').textContent=import.meta.env.DEV?'Serveur introuvable. Lancez npm run server dans un second terminal.':'Connexion au salon indisponible. Réessayez.';};
+  socket.onclose=()=>{if(ws!==socket)return;if(rgToken&&latest&&reconnectAttempts<3){const code=latest.code;reconnectAttempts++;showNotice(`Reconnexion au salon… ${reconnectAttempts}/3`,2600);reconnectTimer=window.setTimeout(()=>connect(()=>send({type:'join',name:nameInput.value,code,rgToken})),reconnectAttempts*1000);return;}returnToMenu(myId?'Connexion au serveur perdue':'Connexion au salon indisponible. Réessayez.');};
+}
+function returnToMenu(message=''):void {
+  if(ws){ws.onclose=null;ws.close();ws=null;}
+  window.clearTimeout(reconnectTimer);reconnectAttempts=0;try{if(rgUserId)sessionStorage.removeItem(roomStorageKey);}catch{}
+  myId='';hostId='';latest=null;sessionToken='';reportPlatformRoom();predicted=null;cameraFocusReady=false;hideHelp();setAim(false);
+  for(const visual of visuals.values())world.scene.remove(visual.root);visuals.clear();
+  for(const mesh of world.propMeshes.values())mesh.visible=true;
+  $('menu').classList.remove('hidden','connecting');$('lobby').classList.add('hidden');$('results').classList.add('hidden');$('hud').classList.add('hidden');
+  $('error').textContent=message;audio.setMusic('menu');if(document.pointerLockElement===canvas)void document.exitPointerLock();
 }
 function send(msg:ClientMessage):void {if(ws?.readyState===WebSocket.OPEN)ws.send(JSON.stringify(msg));}
 function current():PlayerState|null{return latest?.players.find(p=>p.id===myId)||null;}
@@ -76,10 +126,10 @@ function showHelp(role:PlayerState['role'],autoClose=false):void {
     :'Vous avez 30 secondes pour vous cacher. Approchez un meuble et devenez sa copie. Survivez jusqu’à la fin des 3 minutes de chasse.';
   $('howto-touch').textContent=hunter
     ?'Joystick gauche pour avancer · glissez à droite pour regarder · VISER pour ajuster · TIRER pour toucher · COURIR pour sprinter.'
-    :'Joystick gauche pour avancer · glissez à droite pour regarder · approchez un objet puis touchez DEVENIR · VERROUILLER pour rester immobile · COURIR pour sprinter.';
+    :'Joystick gauche pour avancer · glissez à droite pour regarder sans bouger votre objet · approchez un objet puis touchez DEVENIR · VERROUILLER pour rester immobile · NARGUER pour émettre un son (12 s de recharge) · COURIR pour sprinter.';
   $('howto-desktop').textContent=hunter
     ?'ZQSD ou WASD pour bouger · souris pour regarder · clic droit pour viser · clic gauche pour tirer · Maj pour courir · Échap pour libérer la souris.'
-    :'ZQSD ou WASD pour bouger · souris pour regarder · E pour devenir un objet proche ou en changer · F pour verrouiller · Maj pour courir · Échap pour libérer la souris.';
+    :'ZQSD ou WASD pour bouger · souris pour regarder sans bouger votre objet · E pour devenir un objet proche ou en changer · F pour verrouiller · T pour narguer (12 s de recharge) · Maj pour courir · Échap pour libérer la souris.';
   $('notice').textContent='';$('howto').classList.remove('hidden');$('help').setAttribute('aria-expanded','true');
   if(autoClose)helpTimer=window.setTimeout(hideHelp,10000);
 }
@@ -106,7 +156,8 @@ function reconcileSelf(snapshot:Snapshot,previous:Snapshot|null):void {
   if(teleport||error>.8){predicted={id:p.id,disguise:p.disguise,x:p.x,z:p.z,vx:0,vz:0,moving:0};if(teleport)cameraFocusReady=false;return;}
   if(error>.2){predicted!.x+=(p.x-predicted!.x)*.22;predicted!.z+=(p.z-predicted!.z)*.22;}
 }
-function updateRoster():void {if(!latest)return;$('room-code').textContent=latest.code;$('lobby-count').textContent=`${latest.players.length}/7 JOUEURS`;$('roster').innerHTML=latest.players.map(p=>`<div class="roster-item"><span class="roster-dot ${p.bot?'bot':''}"></span><span>${escapeHtml(p.name)}</span><small>${p.bot?'BOT':'JOUEUR'}</small></div>`).join('');$('start').style.display=hostId===myId?'flex':'none';}
+function safeAvatar(url:string|undefined):string|null {try{if(!url)return null;const parsed=new URL(url);return parsed.protocol==='https:'||parsed.protocol==='http:'?escapeHtml(parsed.href):null;}catch{return null;}}
+function updateRoster():void {if(!latest)return;$('room-code').textContent=latest.code;$('lobby-count').textContent=`${latest.players.length}/7 JOUEURS · ${latest.connected} CONNECTÉ${latest.connected>1?'S':''}`;$('roster').innerHTML=latest.players.map(p=>{const avatar=safeAvatar(p.avatarUrl);return `<div class="roster-item"><span class="roster-avatar">${avatar?`<img src="${avatar}" alt="">`:escapeHtml(p.name.slice(0,1).toUpperCase())}</span><span>${escapeHtml(p.name)}</span><small>${p.connected===false?'HORS LIGNE':p.id===latest?.hostId?'HÔTE':p.bot?'BOT':'JOUEUR'}</small></div>`;}).join('');$('start').style.display=hostId===myId?'flex':'none';$('invite-friends').classList.toggle('hidden',!embedded||!rgToken);}
 function escapeHtml(s:string):string{return s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]!));}
 function updateBoard():void {
   if(!latest)return;
@@ -117,8 +168,16 @@ function updateBoard():void {
   $('board-rows').innerHTML=players.map(p=>`<div class="board-row ${p.id===myId?'self':''} ${p.alive?'':'out'}"><span class="board-status ${p.role==='hunter'?'hunter':p.alive?'alive':'eliminated'}"></span><span class="board-name" title="${escapeHtml(p.name)}">${escapeHtml(p.name)}</span><strong>${p.score}<small> PT</small></strong></div>`).join('');
 }
 function handle(msg:ServerMessage):void {
-  if(msg.type==='welcome'){myId=msg.id;hostId=msg.id;audio.play('button');return;}
-  if(msg.type==='error'){$('error').textContent=msg.message;return;}
+  if(msg.type==='welcome'){myId=msg.id;hostId=msg.id;sessionToken=msg.sessionToken;reconnectAttempts=0;try{if(rgUserId)sessionStorage.setItem(roomStorageKey,msg.code);}catch{}audio.play('button');return;}
+  if(msg.type==='error'){$('menu').classList.remove('connecting');$('error').textContent=msg.message;if(adoptedInvitation)platformPost('rg:join-error');return;}
+  if(msg.type==='taunt'){
+    if((seenTaunts.get(msg.id)??0)>=msg.seq)return;
+    seenTaunts.set(msg.id,msg.seq);
+    const me=current();if(!me)return;
+    audio.playTaunt(msg.variant,msg.x,msg.z,me.x,me.z);
+    if(msg.id===myId){tauntAvailableAt=performance.now()+msg.cooldownMs;tauntPendingUntil=0;updateTauntButton(true);}
+    return;
+  }
   if(msg.type==='event'){
     if(msg.event==='fire'){if(msg.id)visuals.get(msg.id)?.character.fire();audio.play('fire');burst(msg.x,msg.z,'#f7bb69');}
     if(msg.event==='hit'){audio.play('hit');burst(msg.x,msg.z,'#e8e0b6');if(msg.id===myId)showNotice('Touché !');}
@@ -127,10 +186,11 @@ function handle(msg:ServerMessage):void {
     if(msg.event==='penalty'&&msg.id===myId){audio.play('penalty');showNotice('Objet innocent · -8 PV');}
     return;
   }
-  const old=latest;latest=msg;hostId=msg.hostId;reconcileSelf(msg,old);
+  const old=latest;latest=msg;hostId=msg.hostId;reconcileSelf(msg,old);if(!old||old.code!==msg.code)reportPlatformRoom();
   if(old?.phase!==msg.phase){
     lastCountdownSecond=-1;
     if(msg.phase==='hide'){
+      tauntAvailableAt=tauntPendingUntil=0;
       canvas.focus({preventScroll:true});audio.setMusic('hide');audio.play('roundStart');showNotice('30 secondes pour se cacher !',3000);
       const me=msg.players.find(p=>p.id===myId);
       if(me&&!seenHelpRoles.has(me.role))showHelp(me.role,true);
@@ -144,7 +204,7 @@ function handle(msg:ServerMessage):void {
       audio.play(me?.role==='hunter'?(survivors.length?'defeat':'victory'):(me?.alive?'victory':'defeat'));
     }
   }
-  $('menu').classList.add('hidden');$('lobby').classList.toggle('hidden',msg.phase!=='lobby');$('results').classList.toggle('hidden',msg.phase!=='results');$('hud').classList.toggle('hidden',!['hide','hunt'].includes(msg.phase));
+  $('menu').classList.add('hidden');$('menu').classList.remove('connecting');closeMenuDialog();$('lobby').classList.toggle('hidden',msg.phase!=='lobby');$('results').classList.toggle('hidden',msg.phase!=='results');$('hud').classList.toggle('hidden',!['hide','hunt'].includes(msg.phase));
   if(msg.phase==='lobby')updateRoster();if(msg.phase==='results')updateResults();
   syncVisuals();updateHUD();updateBoard();
 }
@@ -158,6 +218,25 @@ function updateHUD():void {
   if(p.role==='hunter'){main.textContent='TIRER';main.classList.remove('disabled');lock.style.display='none';$('act-aim').style.display='block';}
   else {setAim(false);$('act-aim').style.display='none';lock.style.display=p.disguise?'block':'none';lock.textContent=p.locked?'DÉVERROUILLER':'VERROUILLER';main.textContent=candidate&&candidate.id!==p.disguise?`DEVENIR ${label(candidate.kind)}`:p.disguise?'REPRENDRE FORME':'APPROCHER UN OBJET';main.classList.toggle('disabled',!candidate&&!p.disguise);}
   $('crosshair').style.display=p.role==='hunter'?'block':'none';
+  updateTauntButton();
+}
+let tauntLabel='';
+function updateTauntButton(force=false):void {
+  const p=current(),button=$<HTMLButtonElement>('act-taunt');
+  const visible=!!p&&p.role==='prop'&&p.alive&&isPlaying();button.classList.toggle('hidden',!visible);
+  if(!visible)return;
+  const remaining=Math.max(0,tauntAvailableAt-performance.now()),pending=performance.now()<tauntPendingUntil;
+  const ready=!!p?.disguise&&!remaining&&!pending;
+  button.disabled=!ready;
+  button.classList.toggle('ready',ready);
+  button.classList.toggle('cooling',remaining>0);
+  button.style.setProperty('--taunt-progress',`${Math.round((1-remaining/TAUNT_COOLDOWN_MS)*100)}%`);
+  const label=!p?.disguise?'DEVENIR OBJET':pending?'ENVOI…':remaining?`${Math.ceil(remaining/1000)} S`:'PRÊT';
+  if(force||label!==tauntLabel){$('taunt-state').textContent=label;button.setAttribute('aria-label',`Narguer : ${label.toLowerCase()}`);tauntLabel=label;}
+}
+function taunt():void {
+  const p=current();if(!p||p.role!=='prop'||!p.alive||!p.disguise||!isPlaying()||performance.now()<tauntAvailableAt||performance.now()<tauntPendingUntil)return;
+  audio.start();tauntPendingUntil=performance.now()+1500;send({type:'taunt'});updateTauntButton(true);
 }
 const labels:Record<string,string>={chair:'CHAISE',stool:'TABOURET',table:'TABLE',lamp:'LAMPE',plant:'PLANTE',vase:'VASE',box:'CAISSE',suitcase:'VALISE',bin:'POUBELLE',bookshelf:'BIBLIOTHÈQUE',tv:'TÉLÉVISION',speaker:'ENCEINTE',microwave:'MICRO-ONDES',toaster:'GRILLE-PAIN',coffee:'CAFETIÈRE',cabinet:'MEUBLE',toy:'JOUET',basket:'PANIER',toolbox:'BOÎTE À OUTILS',fan:'VENTILATEUR',vacuum:'ASPIRATEUR',barrel:'BARIL',chest:'COFFRE',ottoman:'POUF'};
 function label(k:string):string{return labels[k]||k.toUpperCase();}
@@ -200,23 +279,23 @@ function updateCamera(dt:number):void {
   const fov=67-6*aimBlend;if(Math.abs(camera.fov-fov)>.02){camera.fov=fov;camera.updateProjectionMatrix();}
   if(!p){camera.position.lerp(new THREE.Vector3(1,5,13),1-Math.exp(-dt*2));camera.lookAt(0,0,0);cameraFocusReady=false;return;}
   const v=visuals.get(p.id),px=v?.x??p.x,pz=v?.z??p.z;
-  audio.setPosition(px,pz);
+  audio.setPosition(px,pz,yaw);
   const hunter=p.role==='hunter';
   const def=props.find(q=>q.id===p.disguise),height=hunter?1.35:def?Math.max(.6,Math.min(1.6,def.h*.7)):1.2;
   cameraTarget.set(px,height,pz);
   const snap=!cameraFocusReady;
   if(snap){cameraFocus.copy(cameraTarget);cameraFocusReady=true;}
   else cameraFocus.lerp(cameraTarget,1-Math.exp(-dt*12));
-  const distance=hunter?3.45-.65*aimBlend:def?2.75:3.15;
+  const distance=hunter?3.45-.65*aimBlend:propCameraDistance(def??null);
   const lift=hunter ? .95 : .85,shoulder=hunter?1.15:0;
   cameraWanted.set(cameraFocus.x+Math.sin(yaw)*distance+Math.cos(yaw)*shoulder,Math.max(.35,cameraFocus.y+lift-Math.sin(pitch)*distance*.67),cameraFocus.z+Math.cos(yaw)*distance-Math.sin(yaw)*shoulder);
   cameraDirection.subVectors(cameraWanted,cameraFocus);
   const wantedLength=cameraDirection.length();cameraDirection.normalize();
-  const clear=clearCameraDistance(cameraFocus,cameraWanted,p.disguise);
+  const clear=clearCameraDistance(cameraFocus,cameraWanted,p.disguise,hunter?.18:.3);
   cameraWanted.copy(cameraFocus).addScaledVector(cameraDirection,Math.min(wantedLength,clear));
   if(snap)camera.position.copy(cameraWanted);
   else camera.position.lerp(cameraWanted,1-Math.exp(-dt*(clear<wantedLength?16:9)));
-  const safe=clearCameraDistance(cameraFocus,camera.position,p.disguise);
+  const safe=clearCameraDistance(cameraFocus,camera.position,p.disguise,hunter?.18:.3);
   cameraDirection.subVectors(camera.position,cameraFocus);
   const actual=cameraDirection.length();
   if(actual>safe+.001)camera.position.copy(cameraFocus).addScaledVector(cameraDirection.normalize(),safe);
@@ -266,20 +345,55 @@ function predictSelf(dt:number,controls:ControlFrame):void {
   const next=stepKinematic(predicted,{...controls,yaw,disguise:p.disguise},dt);
   Object.assign(predicted,next);
 }
-function updateTime():void {if(!latest)return;const s=Math.max(0,Math.ceil((latest.endsAt-Date.now())/1000));$('timer').textContent=`${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`;if(isPlaying()&&s>0&&s<=5&&s!==lastCountdownSecond){audio.play('countdown');lastCountdownSecond=s;}if(performance.now()>noticeUntil)$('notice').textContent='';}
+function updateTime():void {if(!latest)return;const s=Math.max(0,Math.ceil((latest.endsAt-Date.now())/1000));$('timer').textContent=`${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`;if(isPlaying()&&s>0&&s<=5&&s!==lastCountdownSecond){audio.play('countdown');lastCountdownSecond=s;}if(performance.now()>noticeUntil)$('notice').textContent='';updateTauntButton();}
 let lastDraw=0;
 renderer.setAnimationLoop(()=>{const now=performance.now();if(now-lastDraw<(isPlaying()?30:75))return;lastDraw=now;clock.update();const dt=clamp(clock.getDelta(),0,.05);updateLook(dt);const controls=readControls();updateInput(now,controls);predictSelf(dt,controls);updateVisuals(dt);updateCamera(dt);updateParticles(dt);updateTime();renderer.render(world.scene,camera);});
 if(import.meta.env.DEV)(window as unknown as {__maisonDebug:unknown}).__maisonDebug={renderer,world,getSnapshot:()=>latest,getAudio:()=>audio.status(),getControls:()=>({yaw,pitch,moveX,moveZ,run,aiming,aimBlend,fov:camera.fov,cameraDistance:camera.position.distanceTo(cameraFocus),actions:readControls(),predicted,lastDraw,lastInputSent,now:performance.now(),frame:renderer.info.render.frame})};
 
-$<HTMLButtonElement>('solo').onclick=()=>{audio.start();connect(()=>send({type:'create',name:$<HTMLInputElement>('name').value,bots:3}));};
-$<HTMLButtonElement>('create').onclick=()=>{audio.start();connect(()=>send({type:'create',name:$<HTMLInputElement>('name').value,bots:0}));};
-$<HTMLButtonElement>('join').onclick=()=>{audio.start();connect(()=>send({type:'join',name:$<HTMLInputElement>('name').value,code:$<HTMLInputElement>('code').value.toUpperCase()}));};
+function menuSound():void {audio.start();audio.play('button');}
+function quickGame():void {menuSound();connect(()=>send({type:'create',name:nameInput.value,bots:3,rgToken}));}
+function createRoom():void {menuSound();connect(()=>send({type:'create',name:nameInput.value,bots:0,rgToken}));}
+function closeMenuDialog():void {$('menu-dialog-backdrop').classList.add('hidden');document.querySelectorAll('.menu-nav button').forEach(button=>button.classList.remove('selected'));$('nav-home').classList.add('selected');$('menu').scrollLeft=0;}
+function openMenuDialog(section:'join'|'characters'|'objects'|'maps'|'settings'):void {
+  menuSound();
+  const panel=$('menu-dialog-content');
+  if(section==='join')panel.innerHTML=`<div class="dialog-eyebrow">SALON PRIVÉ</div><h2>Rejoindre un salon</h2><p>Saisissez le code à 4 caractères partagé par l'hôte.</p><label class="dialog-label" for="code">CODE DU SALON</label><input id="code" maxlength="4" placeholder="ABCD" autocapitalize="characters" autocomplete="off" spellcheck="false"><button id="join" class="dialog-primary" type="button">REJOINDRE <span>↗</span></button><p class="dialog-foot">Jusqu'à 7 joueurs dans la même manche.</p>`;
+  if(section==='characters')panel.innerHTML=`<div class="dialog-eyebrow">LES RÔLES</div><h2>Personnages</h2><div class="dialog-role"><span>⌖</span><div><strong>Chasseur</strong><p>Un seul joueur cherche les fugitifs. Visez les objets suspects, mais les erreurs coûtent des points de vie.</p></div></div><div class="dialog-role"><span>◈</span><div><strong>Fugitif</strong><p>Transformez-vous en mobilier, observez le chasseur et survivez jusqu'à la fin du chrono.</p></div></div>`;
+  if(section==='objects'){const names=[...new Set(props.filter(p=>p.morph).map(p=>label(p.kind)))];panel.innerHTML=`<div class="dialog-eyebrow">CACHE-CACHE</div><h2>Objets jouables</h2><p>${props.filter(p=>p.morph).length} objets dans la maison, de ${names.length} types différents. Approchez-vous et transformez-vous avec E ou le bouton tactile.</p><div class="dialog-object-list">${names.map(name=>`<span>${name}</span>`).join('')}</div>`;}
+  if(section==='maps')panel.innerHTML=`<div class="dialog-eyebrow">CARTE DISPONIBLE</div><h2>Maison Masquée</h2><img class="dialog-map" src="/branding/house-background.png" alt="Maison cartoon chaleureuse, direction artistique du menu"><p>Salon, cuisine, chambres, salle de bains, couloirs et garage. Une seule carte jouable pour le moment.</p>`;
+  if(section==='settings')panel.innerHTML=`<div class="dialog-eyebrow">CONFORT DE JEU</div><h2>Paramètres</h2><div class="settings-list"><button id="settings-sound" type="button">Son <strong></strong></button><button id="settings-sensitivity" type="button">Sensibilité <strong></strong></button><button id="settings-quality" type="button">Graphismes <strong></strong></button></div><p class="dialog-foot">Ces réglages s'appliquent aussi pendant la partie.</p>`;
+  $('menu-dialog-backdrop').classList.remove('hidden');
+  document.querySelectorAll('.menu-nav button').forEach(button=>button.classList.remove('selected'));
+  const nav=document.getElementById(`nav-${section}`);if(nav)nav.classList.add('selected');
+  if(section==='join'){
+    const input=$<HTMLInputElement>('code');input.focus({preventScroll:true});
+    const join=()=>{const code=input.value.trim().toUpperCase();if(code.length!==4){$('error').textContent='Saisissez les 4 caractères du code de salon.';input.focus();return;}menuSound();connect(()=>send({type:'join',name:nameInput.value,code,rgToken}));};
+    $<HTMLButtonElement>('join').onclick=join;input.onkeydown=e=>{if(e.key==='Enter')join();};
+  }
+  if(section==='settings'){
+    const refresh=()=>{document.querySelector('#settings-sound strong')!.textContent=$('sound').textContent;document.querySelector('#settings-sensitivity strong')!.textContent=$('sensitivity').textContent;document.querySelector('#settings-quality strong')!.textContent=$('quality').textContent;};
+    for(const kind of ['sound','sensitivity','quality'] as const)$<HTMLButtonElement>(`settings-${kind}`).onclick=()=>{menuSound();$<HTMLButtonElement>(kind).click();refresh();};
+    refresh();
+  }
+}
+$<HTMLButtonElement>('solo').onclick=quickGame;$<HTMLButtonElement>('mode-quick').onclick=quickGame;$<HTMLButtonElement>('create').onclick=createRoom;
+$<HTMLButtonElement>('mode-join').onclick=()=>openMenuDialog('join');
+$<HTMLButtonElement>('nav-home').onclick=()=>{menuSound();closeMenuDialog();};
+$<HTMLButtonElement>('nav-play').onclick=()=>{menuSound();closeMenuDialog();$('nav-home').classList.remove('selected');$('nav-play').classList.add('selected');$('solo').classList.add('invited');window.setTimeout(()=>$('solo').classList.remove('invited'),600);$<HTMLButtonElement>('solo').focus({preventScroll:true});};
+for(const section of ['characters','objects','maps','settings'] as const)$<HTMLButtonElement>(`nav-${section}`).onclick=()=>openMenuDialog(section);
+$<HTMLButtonElement>('menu-settings').onclick=()=>openMenuDialog('settings');
+$<HTMLButtonElement>('menu-dialog-close').onclick=closeMenuDialog;
+$('menu-dialog-backdrop').addEventListener('pointerdown',e=>{if(e.target===$('menu-dialog-backdrop'))closeMenuDialog();});
+$<HTMLButtonElement>('lobby-back').onclick=()=>{menuSound();returnToMenu();};
+$<HTMLButtonElement>('invite-friends').onclick=()=>{menuSound();platformPost('rg:invite-request');};
+$<HTMLButtonElement>('results-menu').onclick=()=>{menuSound();returnToMenu();};
 $<HTMLButtonElement>('start').onclick=()=>{audio.play('button');send({type:'start'});};
 $<HTMLButtonElement>('next').onclick=()=>{audio.play('button');send({type:'next'});};
 $<HTMLButtonElement>('quality').onclick=()=>{qualityIndex=(qualityIndex+1)%qualityModes.length;const q=qualityModes[qualityIndex];$('quality').textContent=q.label;renderer.shadowMap.enabled=q.shadows;resize();};
 $<HTMLButtonElement>('sound').onclick=()=>{$('sound').textContent=audio.toggleMute()?'OFF':'ON';};
 $<HTMLButtonElement>('sensitivity').onclick=()=>{sensitivityIndex=(sensitivityIndex+1)%sensitivityLevels.length;localStorage.setItem('maison-sensitivity',String(sensitivityIndex));$('sensitivity').textContent=`${sensitivityLevels[sensitivityIndex].toFixed(1)}×`;};
 $<HTMLButtonElement>('act-main').onclick=primary;$<HTMLButtonElement>('act-lock').onclick=toggleLock;$<HTMLButtonElement>('act-aim').onclick=()=>setAim(!aiming);
+$<HTMLButtonElement>('act-taunt').onclick=taunt;
 $<HTMLButtonElement>('help').onclick=()=>{
   const p=current();if(!p||!isPlaying())return;
   audio.play('button');
@@ -299,6 +413,7 @@ window.addEventListener('keydown',e=>{
   if(e.code==='KeyH'&&isPlaying()){const p=current();if(p){if($('howto').classList.contains('hidden'))showHelp(p.role);else hideHelp();}}
   if(e.code==='KeyE')primary();
   if(e.code==='KeyF')toggleLock();
+  if(e.code==='KeyT')taunt();
   if(e.code==='Space'&&current()?.role==='hunter')primary();
 });
 window.addEventListener('keyup',e=>keys.delete(e.code));
