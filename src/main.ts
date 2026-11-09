@@ -33,7 +33,7 @@ const qualityModes=[{label:'BASSE',ratio:1,shadows:false},{label:'MOYENNE',ratio
 let qualityIndex=matchMedia('(pointer:coarse)').matches?0:1;
 $('quality').textContent=qualityModes[qualityIndex].label;
 renderer.shadowMap.enabled=qualityModes[qualityIndex].shadows;
-function resize():void {const w=window.innerWidth,h=window.innerHeight;camera.aspect=w/h;camera.updateProjectionMatrix();renderer.setPixelRatio(Math.min(devicePixelRatio,qualityModes[qualityIndex].ratio));renderer.setSize(w,h);}
+function resize():void {const w=window.innerWidth,h=window.innerHeight;const rotate=document.getElementById('rotate');rotate?.classList.toggle('hidden',w>=h||!matchMedia('(pointer:coarse)').matches);camera.aspect=w/h;camera.updateProjectionMatrix();renderer.setPixelRatio(Math.min(devicePixelRatio,qualityModes[qualityIndex].ratio));renderer.setSize(w,h);}
 const world=buildWorld(),camera=new THREE.PerspectiveCamera(67,1,.08,70);camera.position.set(1,5,13);camera.lookAt(0,0,0);world.scene.add(camera);
 window.addEventListener('resize',resize);resize();
 const audio=new AudioEngine();
@@ -350,7 +350,10 @@ let lastDraw=0;
 renderer.setAnimationLoop(()=>{const now=performance.now();if(now-lastDraw<(isPlaying()?30:75))return;lastDraw=now;clock.update();const dt=clamp(clock.getDelta(),0,.05);updateLook(dt);const controls=readControls();updateInput(now,controls);predictSelf(dt,controls);updateVisuals(dt);updateCamera(dt);updateParticles(dt);updateTime();renderer.render(world.scene,camera);});
 if(import.meta.env.DEV)(window as unknown as {__maisonDebug:unknown}).__maisonDebug={renderer,world,getSnapshot:()=>latest,getAudio:()=>audio.status(),getControls:()=>({yaw,pitch,moveX,moveZ,run,aiming,aimBlend,fov:camera.fov,cameraDistance:camera.position.distanceTo(cameraFocus),actions:readControls(),predicted,lastDraw,lastInputSent,now:performance.now(),frame:renderer.info.render.frame})};
 
-function menuSound():void {audio.start();audio.play('button');}
+let orientationRequested=false;
+function requestLandscape():void {if(orientationRequested||!matchMedia('(pointer:coarse)').matches)return;orientationRequested=true;const orientation=screen.orientation as ScreenOrientation&{lock?:(value:string)=>Promise<void>};void orientation.lock?.('landscape').catch(()=>{orientationRequested=false;});}
+requestLandscape();window.addEventListener('pointerdown',requestLandscape,{once:true});
+function menuSound():void {requestLandscape();audio.start();audio.play('button');}
 function quickGame():void {menuSound();connect(()=>send({type:'create',name:nameInput.value,bots:3,rgToken}));}
 function createRoom():void {menuSound();connect(()=>send({type:'create',name:nameInput.value,bots:0,rgToken}));}
 function closeMenuDialog():void {$('menu-dialog-backdrop').classList.add('hidden');document.querySelectorAll('.menu-nav button').forEach(button=>button.classList.remove('selected'));$('nav-home').classList.add('selected');$('menu').scrollLeft=0;}
