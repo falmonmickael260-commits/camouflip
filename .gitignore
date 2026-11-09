@@ -1,0 +1,11 @@
+node_modules
+dist
+recordings
+.DS_Store
+/captures/
+/*.png
+/*.mp4
+/*.webm
+*.log
+.env*
+!.env.example
