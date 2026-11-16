@@ -50,7 +50,7 @@ const connector={
     const room=rooms.get(c.room);if(!room)throw new Error('Salon introuvable.');
     const proof=room.players.get(c.proof.playerId);
     if(!proof||!proof.uid||proof.uid!==(c.operation==='admit'?c.inviter:c.uid)||proof.sessionToken!==c.proof.token||!proof.socket)throw new Error('Accès au salon invalide.');
-    return roomInfo(room);
+    return {...roomInfo(room),isHost:proof.id===room.hostId};
   },
   admit(c:Command):Session{
     const room=rooms.get(c.room)!;

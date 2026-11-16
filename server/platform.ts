@@ -3,8 +3,8 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 
 export type Identity = { uid:string; username:string; avatar?:string };
 export type Session = { code:string; token:string; playerId:string };
-export type Command = { v:1; game:'camouflip'; operation:'inspect'|'admit'; room:string; uid:string; name:string; proof:Session; inviter?:string; instance?:string; invitation?:string };
-export type RoomInfo = {code:string;instance:string;capacity:number;count:number;status:'open'|'started'|'closed'};
+export type Command = { v:1; game:'camouflip'; operation:'inspect'|'admit'; room:string; uid:string; name:string; proof:Session; inviter?:string; instance?:string; invitation?:string; publicJoin?:boolean };
+export type RoomInfo = {code:string;instance:string;capacity:number;count:number;status:'open'|'started'|'closed';isHost?:boolean};
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 function equal(a:string,b:string):boolean {const x=Buffer.from(a),y=Buffer.from(b);return x.length===y.length&&timingSafeEqual(x,y);}
 
@@ -30,6 +30,7 @@ function verifyCommand(raw:string,signature:unknown):Command {
   const c=JSON.parse(raw) as Command;
   if(c.v!==1||c.game!=='camouflip'||!['inspect','admit'].includes(c.operation)||!uuid.test(c.uid)||typeof c.name!=='string'||c.name.length>100||!(/^[A-Z0-9]{4}$/).test(c.room)||c.proof?.code!==c.room||typeof c.proof?.token!=='string'||typeof c.proof?.playerId!=='string')throw new Error('Commande invalide.');
   if(c.operation==='admit'&&(!uuid.test(c.inviter||'')||!uuid.test(c.invitation||'')||typeof c.instance!=='string'))throw new Error('Admission invalide.');
+  if(c.publicJoin!==undefined&&(c.operation!=='admit'||typeof c.publicJoin!=='boolean'))throw new Error('Admission invalide.');
   return c;
 }
 
@@ -40,6 +41,7 @@ export async function handleConnector(req:IncomingMessage,res:ServerResponse,ada
   let raw='';for await(const chunk of req){raw+=String(chunk);if(raw.length>8192){json(413,{error:'Commande trop volumineuse.'});return true;}}
   try{const c=verifyCommand(raw,req.headers['x-rg-signature']);const room=adapter.inspect(c);
     if(c.operation==='inspect'){json(200,{room});return true;}
+    if(c.publicJoin&&(room.isHost!==true||room.status!=='open'))throw new Error('Ce salon public n’est plus disponible.');
     if(room.instance!==c.instance)throw new Error('Ce salon a fermé ou a été remplacé.');
     const session=adapter.admit(c);json(200,{room,session});
   }catch(e){json(409,{error:e instanceof Error?e.message:'Entrée impossible.'});}
