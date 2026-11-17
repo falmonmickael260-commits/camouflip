@@ -1,3 +1,4 @@
+import { nodeObserver } from '../admin-observer/server.mjs';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { createServer } from 'node:http';
@@ -19,6 +20,12 @@ const staticRoot=resolve(process.cwd(),'dist');
 const mime:Record<string,string>={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.m4a':'audio/mp4','.svg':'image/svg+xml','.png':'image/png','.jpg':'image/jpeg','.webp':'image/webp','.ico':'image/x-icon'};
 const httpServer=createServer(async(req,res)=>{
   if(req.url==='/health'){res.writeHead(200,{'content-type':'text/plain; charset=utf-8'});res.end('ok');return;}
+  if(await nodeObserver(req,res,'camouflip',(code,instance)=>{
+    const room=rooms.get(code);if(!room||room.instance!==instance)return null;
+    return {code:room.code,phase:room.phase,round:room.round,endsAt:room.endsAt,
+      players:[...room.players.values()].map(p=>({id:p.id,name:p.name,connected:p.bot||!!p.socket,alive:p.alive,score:p.score,bot:p.bot,
+        ...(p.role==='hunter'?{role:'hunter',x:p.x,z:p.z}:{} )}))};
+  }))return;
   if(await handleConnector(req,res,connector))return;
   if(req.method!=='GET'&&req.method!=='HEAD'){res.writeHead(405);res.end();return;}
   let path:string;

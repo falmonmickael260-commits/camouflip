@@ -21,6 +21,17 @@ try{
   const info=await command({v:1,game:'camouflip',operation:'inspect',room:h.code,uid:hostId,name:'Hôte RG',proof});
   assert.equal(info.status,200);assert.equal(info.body.room.capacity,7);assert.equal(info.body.room.count,1);
   assert.equal((await command({v:1,game:'camouflip',operation:'inspect',room:h.code,uid:hostId,name:'Hôte RG',proof},false)).status,409);
+  // A spectator reads the real room without admission, capacity changes or hidden props.
+  const observerCommand={v:1,game:'camouflip',operation:'snapshot',actor:randomUUID(),access:randomUUID(),room:h.code,instance:info.body.room.instance};
+  const observerRaw=JSON.stringify(observerCommand),observerStamp=String(Math.floor(Date.now()/1000));
+  const observerSignature=`${observerStamp}.${createHmac('sha256',secret).update(`rg-admin-observer-v1.${observerStamp}.${observerRaw}`).digest('hex')}`;
+  const observed=await fetch(`${base}/api/platform/observer`,{method:'POST',headers:{'x-rg-signature':observerSignature},body:observerRaw});
+  assert.equal(observed.status,200);
+  const observerState=await observed.json();assert.equal(observerState.publicState.players.length,1);
+  const privatePlayer=observerState.publicState.players[0];
+  for(const field of ['x','z','disguise','hp','sessionToken','uid','socket'])assert.equal(field in privatePlayer,false);
+  assert.equal((await command({v:1,game:'camouflip',operation:'inspect',room:h.code,uid:hostId,name:'Hôte RG',proof})).body.room.count,1);
+  assert.equal((await fetch(`${base}/api/platform/observer`,{method:'POST',headers:{'x-rg-signature':'forged'},body:observerRaw})).status,403);
   const admitted:{uid:string;ws:WebSocket;token:string}[]=[];
   let latest:ServerMessage|null=null;
   for(let i=0;i<6;i++){
